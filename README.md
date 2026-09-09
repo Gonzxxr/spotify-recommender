@@ -56,6 +56,39 @@ export LASTFM_API_KEY=...
 
 La app queda en `http://127.0.0.1:8080`.
 
+## Deploy a Railway
+
+El repo ya trae un `Dockerfile` multi-stage (probado localmente con `docker build` + un Postgres
+de prueba) y toma la config de Postgres de las variables `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
+que es como Railway inyecta las credenciales de su plugin de Postgres automáticamente. También lee
+`PORT` para el puerto HTTP, que Railway también inyecta solo.
+
+1. Pushear este repo a GitHub (ver más abajo si todavía no lo hiciste).
+2. En [railway.app](https://railway.app), crear un proyecto nuevo → "Deploy from GitHub repo" → elegir este repo.
+   Railway detecta el `Dockerfile` y lo usa para buildear.
+3. En el mismo proyecto, "+ New" → "Database" → "Add PostgreSQL". Railway conecta automáticamente
+   `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` al servicio de la app (no hace falta
+   setearlas a mano ni usar `DB_PASSWORD`, esa es solo para uso local con `docker-compose.yml`).
+4. En el servicio de la app, pestaña "Variables", agregar:
+   - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` (del Spotify Developer Dashboard)
+   - `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`)
+   - `LASTFM_API_KEY`
+   - `COOKIE_SECURE=true` (obligatorio: sin esto el navegador no manda la cookie de sesión sobre HTTPS)
+   - `SPOTIFY_REDIRECT_URI=https://<tu-dominio-de-railway>/auth/spotify/callback` (Railway te da el
+     dominio `*.up.railway.app` apenas hace el primer deploy, en Settings → Networking → "Generate Domain")
+5. Volver al Spotify Developer Dashboard → tu app → Settings → agregar exactamente esa misma URL
+   a "Redirect URIs", y agregar como usuarios de la app (o pasarla a modo producción) a los 4 amigos
+   que se van a loguear.
+6. Redeploy. Listo, la URL de Railway es la que comparten entre los 5.
+
+## Pushear a GitHub (si todavía no lo hiciste)
+
+```bash
+gh auth login          # o creá el repo a mano en github.com/new
+gh repo create spotify-recommender --private --source=. --remote=origin
+git push -u origin master
+```
+
 ## Usarla con más de una persona
 
 La app está pensada para correr **una sola instancia compartida** (por ejemplo, en un VPS)

@@ -2,6 +2,7 @@ package com.Gonzxxr.spotify_recommender.auth;
 
 import com.Gonzxxr.spotify_recommender.persistence.User;
 import com.Gonzxxr.spotify_recommender.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -26,13 +27,16 @@ public class AuthController {
     private final OAuthStateStore stateStore;
     private final SessionStore sessionStore;
     private final CurrentUserResolver currentUserResolver;
+    private final boolean cookieSecure;
 
     public AuthController(SpotifyAuthService authService, OAuthStateStore stateStore,
-                           SessionStore sessionStore, CurrentUserResolver currentUserResolver) {
+                           SessionStore sessionStore, CurrentUserResolver currentUserResolver,
+                           @Value("${app.security.cookie-secure}") boolean cookieSecure) {
         this.authService = authService;
         this.stateStore = stateStore;
         this.sessionStore = sessionStore;
         this.currentUserResolver = currentUserResolver;
+        this.cookieSecure = cookieSecure;
     }
 
     @GetMapping("/login")
@@ -77,6 +81,7 @@ public class AuthController {
     private ResponseCookie sessionCookie(String value, Duration maxAge) {
         return ResponseCookie.from(SessionStore.COOKIE_NAME, value)
                 .httpOnly(true)
+                .secure(cookieSecure)
                 .sameSite("Lax")
                 .path("/")
                 .maxAge(maxAge)
