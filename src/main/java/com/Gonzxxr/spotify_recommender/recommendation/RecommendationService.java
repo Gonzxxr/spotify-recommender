@@ -71,7 +71,7 @@ public class RecommendationService {
         Instant reRecommendCutoff = Instant.now().minus(recommendationProperties.reRecommendCooldown());
         List<TrackSeen> pending = trackSeenRepository.findPendingForRecommendation(
                 user, user.getPlaylistId(), MAX_RECOMMENDATION_ATTEMPTS, retryCutoff, reRecommendCutoff);
-        for (TrackSeen trackSeen : pending) {
+        for (TrackSeen trackSeen : pending.stream().limit(MAX_TRACKS_PER_TICK).toList()) {
             generateForTrack(trackSeen);
         }
     }

@@ -30,6 +30,8 @@ public class SpotifySearchService {
      */
     public synchronized Optional<TrackMatch> findTrack(String accessToken, String trackName, String artistName) {
         if (Instant.now().isBefore(blockedUntil)) {
+            log.warn("Spotify search still rate-limited until {}, skipping search for track='{}' artist='{}'",
+                    blockedUntil, trackName, artistName);
             return Optional.empty();
         }
         pace();
