@@ -19,7 +19,7 @@ public interface RecommendationRepository extends JpaRepository<Recommendation, 
             SELECT r FROM Recommendation r
             WHERE r.user = :user AND r.playlistId = :playlistId
               AND (r.shownAt IS NULL OR r.shownAt < :shownCutoff)
-            ORDER BY r.shownAt ASC NULLS FIRST, r.createdAt DESC
+            ORDER BY r.matchScore DESC, r.shownAt ASC NULLS FIRST, r.createdAt DESC
             """)
     List<Recommendation> findNextToShow(@Param("user") User user, @Param("playlistId") String playlistId,
                                          @Param("shownCutoff") Instant shownCutoff, Pageable pageable);

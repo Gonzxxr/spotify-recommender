@@ -354,6 +354,28 @@ li.card[data-playlist-id]:active {
     transform: scale(0.92);
 }
 
+.fab-refresh {
+    position: fixed;
+    right: calc(20px + var(--safe-right));
+    bottom: calc(20px + var(--safe-bottom));
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 1.6rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28), var(--shadow);
+    z-index: 40;
+}
+
+.fab-refresh:hover {
+    filter: brightness(1.06);
+}
+
 .toast {
     position: fixed;
     top: calc(14px + var(--safe-top));
