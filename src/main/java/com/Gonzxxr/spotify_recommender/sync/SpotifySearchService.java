@@ -9,6 +9,8 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -20,6 +22,7 @@ public class SpotifySearchService {
     private static final long MIN_INTERVAL_MS = 400;
 
     private final RestClient restClient = RestClient.create();
+    private final Map<String, Optional<TrackMatch>> cache = new HashMap<>();
     private volatile Instant blockedUntil = Instant.EPOCH;
     private Instant lastCallAt = Instant.EPOCH;
 
@@ -27,8 +30,16 @@ public class SpotifySearchService {
      * Synchronized so every call to Spotify Search — regardless of which thread triggers it
      * (scheduler, on-demand playlist switch, etc.) — is globally serialized and paced. Spotify's
      * rate limit is per-app, not per-caller, so concurrent callers must not be able to burst it.
+     * Results (hits and confirmed misses) are cached by track+artist so different users/tracks
+     * that recommend the same song don't re-spend a search call on it.
      */
     public synchronized Optional<TrackMatch> findTrack(String accessToken, String trackName, String artistName) {
+        String cacheKey = cacheKey(trackName, artistName);
+        Optional<TrackMatch> cached = cache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         if (Instant.now().isBefore(blockedUntil)) {
             log.warn("Spotify search still rate-limited until {}, skipping search for track='{}' artist='{}'",
                     blockedUntil, trackName, artistName);
@@ -52,12 +63,9 @@ public class SpotifySearchService {
                     .body(SpotifySearchResponse.class);
 
             lastCallAt = Instant.now();
-            if (response == null || response.tracks() == null || response.tracks().items() == null || response.tracks().items().isEmpty()) {
-                return Optional.empty();
-            }
-            SpotifyTrackRef track = response.tracks().items().get(0);
-            if (track.id() == null) return Optional.empty();
-            return Optional.of(new TrackMatch(track.id(), track.albumImageUrl()));
+            Optional<TrackMatch> result = toTrackMatch(response);
+            cache.put(cacheKey, result);
+            return result;
         } catch (HttpClientErrorException.TooManyRequests e) {
             lastCallAt = Instant.now();
             long retryAfterSeconds = parseRetryAfter(e);
@@ -69,6 +77,23 @@ public class SpotifySearchService {
             log.warn("Spotify search failed for track='{}' artist='{}': {}", trackName, artistName, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private Optional<TrackMatch> toTrackMatch(SpotifySearchResponse response) {
+        if (response == null || response.tracks() == null || response.tracks().items() == null || response.tracks().items().isEmpty()) {
+            return Optional.empty();
+        }
+        SpotifyTrackRef track = response.tracks().items().get(0);
+        if (track.id() == null) return Optional.empty();
+        return Optional.of(new TrackMatch(track.id(), track.albumImageUrl()));
+    }
+
+    private String cacheKey(String trackName, String artistName) {
+        return normalize(artistName) + "|" + normalize(trackName);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
     }
 
     private void pace() {
