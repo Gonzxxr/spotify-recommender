@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Spotify Recommender</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <h1>Spotify Recommender</h1>
+        </header>
+
+        <section id="disconnectedView" class="hero">
+            <div class="hero-icon">🎧</div>
+            <h2>Descubrí tu próxima canción</h2>
+            <p class="hero-subtitle">Conectá tu cuenta de Spotify y generamos recomendaciones a partir de tus playlists.</p>
+            <button id="connectBtn" class="btn-primary">Conectar con Spotify</button>
+        </section>
+
+        <div id="shellBody" class="shell-body" hidden>
+            <aside class="sidebar">
+                <section id="connectedView" class="sidebar-panel">
+                    <p id="accountInfo"></p>
+                    <nav class="sidebar-nav">
+                        <button id="choosePlaylistBtn" class="nav-btn">Elegir playlist</button>
+                        <button id="loadBtn" class="nav-btn">Ver recomendaciones</button>
+                    </nav>
+                    <button id="disconnectBtn" class="link-btn sidebar-disconnect">Desconectar</button>
+                </section>
+            </aside>
+
+            <main>
+                <p id="message"></p>
+                <ul id="playlists" class="card-list"></ul>
+                <ul id="recommendations" class="card-list"></ul>
+                <button id="refreshBtn" class="link-btn" hidden>Actualizar</button>
+            </main>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
