@@ -45,7 +45,15 @@ public class PlaylistController {
     @GetMapping
     public ResponseEntity<List<PlaylistSummary>> listPlaylists(@CookieValue(value = SessionStore.COOKIE_NAME, required = false) String sessionId) {
         return currentUserResolver.resolve(sessionId)
-                .map(user -> ResponseEntity.ok(playlistService.fetchUserPlaylists(spotifyAuthService.getValidAccessToken(user), user.getSpotifyUserId())))
+                .map(user -> {
+                    try {
+                        return ResponseEntity.ok(playlistService.fetchUserPlaylists(spotifyAuthService.getValidAccessToken(user), user.getSpotifyUserId()));
+                    } catch (HttpClientErrorException.TooManyRequests e) {
+                        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).<List<PlaylistSummary>>build();
+                    } catch (RestClientException e) {
+                        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).<List<PlaylistSummary>>build();
+                    }
+                })
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
 

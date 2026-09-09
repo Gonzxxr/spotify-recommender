@@ -15,6 +15,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -23,11 +24,13 @@ import java.util.function.Supplier;
 public class PlaylistSyncService {
     private static final Logger log = LoggerFactory.getLogger(PlaylistSyncService.class);
     private static final int MAX_RETRIES = 5;
+    private static final long MAX_INLINE_WAIT_SECONDS = 5;
 
     private final SpotifyAuthService spotifyAuthService;
     private final UserRepository userRepository;
     private final TrackSeenRepository trackSeenRepository;
     private final RestClient restClient = RestClient.create();
+    private volatile Instant blockedUntil = Instant.EPOCH;
 
     public PlaylistSyncService(SpotifyAuthService spotifyAuthService, UserRepository userRepository, TrackSeenRepository trackSeenRepository) {
         this.spotifyAuthService = spotifyAuthService;
@@ -38,6 +41,10 @@ public class PlaylistSyncService {
 
     @Scheduled(fixedRate = 30, timeUnit = TimeUnit.SECONDS)
     public void syncPlaylists() {
+        if (Instant.now().isBefore(blockedUntil)) {
+            log.warn("Skipping playlist sync tick, still rate-limited until {}", blockedUntil);
+            return;
+        }
         List<User> users = userRepository.findAll();
         for (User user : users){
             if (user.getPlaylistId() == null) continue;
@@ -99,17 +106,28 @@ public class PlaylistSyncService {
         return response != null ? response.snapshotId() : null;
     }
 
+    /**
+     * Only retries inline for short waits (a few seconds) — the scheduler that calls this
+     * runs on a single shared thread, so sleeping for a long Retry-After here would freeze
+     * every other @Scheduled job in the app. A long wait instead sets blockedUntil and fails
+     * fast, letting the next scheduled tick (or /playlists/select) pick it back up later.
+     */
     private <T> T executeWithRetry(Supplier<T> spotifyCall) {
         int attempts = 0;
         while (true) {
             try {
                 return spotifyCall.get();
             } catch (HttpClientErrorException.TooManyRequests e) {
+                long waitSeconds = retryAfterSeconds(e.getResponseHeaders());
+                if (waitSeconds > MAX_INLINE_WAIT_SECONDS) {
+                    blockedUntil = Instant.now().plusSeconds(waitSeconds);
+                    log.warn("Spotify rate limit hit, pausing playlist sync for {}s (until {})", waitSeconds, blockedUntil);
+                    throw e;
+                }
                 attempts++;
                 if (attempts > MAX_RETRIES) {
                     throw e;
                 }
-                long waitSeconds = retryAfterSeconds(e.getResponseHeaders());
                 log.warn("Spotify rate limit hit, waiting {}s before retry {}/{}", waitSeconds, attempts, MAX_RETRIES);
                 try {
                     TimeUnit.SECONDS.sleep(waitSeconds);
