@@ -29,13 +29,14 @@ public class PlaylistSyncService {
     private final SpotifyAuthService spotifyAuthService;
     private final UserRepository userRepository;
     private final TrackSeenRepository trackSeenRepository;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
     private volatile Instant blockedUntil = Instant.EPOCH;
 
-    public PlaylistSyncService(SpotifyAuthService spotifyAuthService, UserRepository userRepository, TrackSeenRepository trackSeenRepository) {
+    public PlaylistSyncService(SpotifyAuthService spotifyAuthService, UserRepository userRepository, TrackSeenRepository trackSeenRepository, RestClient.Builder restClientBuilder) {
         this.spotifyAuthService = spotifyAuthService;
         this.userRepository = userRepository;
         this.trackSeenRepository = trackSeenRepository;
+        this.restClient = restClientBuilder.build();
     }
 
 

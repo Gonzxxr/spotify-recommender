@@ -21,10 +21,14 @@ public class SpotifySearchService {
     private static final long DEFAULT_RETRY_SECONDS = 5;
     private static final long MIN_INTERVAL_MS = 400;
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
     private final Map<String, Optional<TrackMatch>> cache = new HashMap<>();
     private volatile Instant blockedUntil = Instant.EPOCH;
     private Instant lastCallAt = Instant.EPOCH;
+
+    public SpotifySearchService(RestClient.Builder restClientBuilder) {
+        this.restClient = restClientBuilder.build();
+    }
 
     /**
      * Synchronized so every call to Spotify Search — regardless of which thread triggers it

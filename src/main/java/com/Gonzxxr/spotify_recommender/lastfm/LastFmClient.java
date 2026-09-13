@@ -17,10 +17,11 @@ public class LastFmClient {
     private static final String BASE_URL = "https://ws.audioscrobbler.com/2.0/";
 
     private final LastFmProperties properties;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
 
-    public LastFmClient(LastFmProperties properties) {
+    public LastFmClient(LastFmProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
+        this.restClient = restClientBuilder.build();
     }
 
     public List<SimilarTrack> getSimilarTracks(String artist, String track, int limit) {

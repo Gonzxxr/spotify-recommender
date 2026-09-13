@@ -23,11 +23,12 @@ public class SpotifyAuthService {
 
     private final SpotifyProperties properties;
     private final UserRepository userRepository;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
 
-    public SpotifyAuthService(SpotifyProperties properties, UserRepository userRepository) {
+    public SpotifyAuthService(SpotifyProperties properties, UserRepository userRepository, RestClient.Builder restClientBuilder) {
         this.properties = properties;
         this.userRepository = userRepository;
+        this.restClient = restClientBuilder.build();
     }
 
     public String buildAuthorizeUrl(String state) {

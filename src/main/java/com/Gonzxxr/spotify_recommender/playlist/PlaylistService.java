@@ -11,7 +11,11 @@ public class PlaylistService {
 
     private static final String PLAYLISTS_URL = "https://api.spotify.com/v1/me/playlists?limit=50";
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
+
+    public PlaylistService(RestClient.Builder restClientBuilder) {
+        this.restClient = restClientBuilder.build();
+    }
 
     public List<PlaylistSummary> fetchUserPlaylists(String accessToken, String spotifyUserId) {
         SpotifyOwnedPlaylistsResponse response = restClient.get()
