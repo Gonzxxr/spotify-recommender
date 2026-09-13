@@ -20,12 +20,8 @@ public interface TrackSeenRepository extends JpaRepository<TrackSeen, Long> {
             WHERE ts.trackName IS NOT NULL AND ts.artistName IS NOT NULL
               AND (ts.lastAttemptedAt IS NULL OR ts.lastAttemptedAt < :retryCutoff)
               AND NOT EXISTS (SELECT 1 FROM Recommendation r WHERE r.sourceTrack = ts AND r.createdAt > :reRecommendCutoff)
-              AND (
-                    ts.recommendationAttempts < :maxAttempts
-                    OR EXISTS (SELECT 1 FROM Recommendation r2 WHERE r2.sourceTrack = ts)
-                  )
             """)
-    List<TrackSeen> findPendingForRecommendation(@Param("maxAttempts") int maxAttempts, @Param("retryCutoff") Instant retryCutoff,
+    List<TrackSeen> findPendingForRecommendation(@Param("retryCutoff") Instant retryCutoff,
                                                   @Param("reRecommendCutoff") Instant reRecommendCutoff, Pageable pageable);
 
     @Query("""
@@ -34,12 +30,8 @@ public interface TrackSeenRepository extends JpaRepository<TrackSeen, Long> {
               AND ts.trackName IS NOT NULL AND ts.artistName IS NOT NULL
               AND (ts.lastAttemptedAt IS NULL OR ts.lastAttemptedAt < :retryCutoff)
               AND NOT EXISTS (SELECT 1 FROM Recommendation r WHERE r.sourceTrack = ts AND r.createdAt > :reRecommendCutoff)
-              AND (
-                    ts.recommendationAttempts < :maxAttempts
-                    OR EXISTS (SELECT 1 FROM Recommendation r2 WHERE r2.sourceTrack = ts)
-                  )
             """)
     List<TrackSeen> findPendingForRecommendation(@Param("user") User user, @Param("playlistId") String playlistId,
-                                                  @Param("maxAttempts") int maxAttempts, @Param("retryCutoff") Instant retryCutoff,
+                                                  @Param("retryCutoff") Instant retryCutoff,
                                                   @Param("reRecommendCutoff") Instant reRecommendCutoff);
 }

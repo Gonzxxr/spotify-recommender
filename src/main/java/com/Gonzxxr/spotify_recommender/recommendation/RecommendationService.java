@@ -62,7 +62,7 @@ public class RecommendationService {
         Instant retryCutoff = Instant.now().minus(RETRY_COOLDOWN);
         Instant reRecommendCutoff = Instant.now().minus(recommendationProperties.reRecommendCooldown());
         List<TrackSeen> pending = trackSeenRepository.findPendingForRecommendation(
-                MAX_RECOMMENDATION_ATTEMPTS, retryCutoff, reRecommendCutoff, PageRequest.of(0, MAX_TRACKS_PER_TICK));
+                retryCutoff, reRecommendCutoff, PageRequest.of(0, MAX_TRACKS_PER_TICK));
         for (TrackSeen trackSeen : pending) {
             generateForTrack(trackSeen);
         }
@@ -73,7 +73,7 @@ public class RecommendationService {
         Instant retryCutoff = Instant.now().minus(RETRY_COOLDOWN);
         Instant reRecommendCutoff = Instant.now().minus(recommendationProperties.reRecommendCooldown());
         List<TrackSeen> pending = trackSeenRepository.findPendingForRecommendation(
-                user, user.getPlaylistId(), MAX_RECOMMENDATION_ATTEMPTS, retryCutoff, reRecommendCutoff);
+                user, user.getPlaylistId(), retryCutoff, reRecommendCutoff);
         log.info("generateForUserAsync: {} pending track(s) for user {} playlist {}",
                 pending.size(), user.getSpotifyUserId(), user.getPlaylistId());
         for (TrackSeen trackSeen : pending.stream().limit(MAX_TRACKS_PER_TICK).toList()) {
