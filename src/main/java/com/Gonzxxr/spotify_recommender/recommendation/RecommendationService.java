@@ -30,6 +30,13 @@ public class RecommendationService {
     private static final Logger log = LoggerFactory.getLogger(RecommendationService.class);
     private static final int SIMILAR_TRACKS_LIMIT = 5;
     private static final int MAX_TRACKS_PER_TICK = 20;
+    /**
+     * On-select is one synchronous burst against the single globally-paced SpotifySearchService,
+     * worst case with zero cache hits (a track never seen before). Kept much lower than
+     * MAX_TRACKS_PER_TICK so selecting one new playlist can't alone spend the app's whole Spotify
+     * Search quota — the rest of the playlist still gets processed gradually via the scheduled tick.
+     */
+    private static final int MAX_TRACKS_PER_SELECT = 5;
     private static final int MAX_RECOMMENDATION_ATTEMPTS = 3;
     private static final Duration RETRY_COOLDOWN = Duration.ofHours(6);
 
@@ -76,7 +83,7 @@ public class RecommendationService {
                 user, user.getPlaylistId(), retryCutoff, reRecommendCutoff);
         log.info("generateForUserAsync: {} pending track(s) for user {} playlist {}",
                 pending.size(), user.getSpotifyUserId(), user.getPlaylistId());
-        for (TrackSeen trackSeen : pending.stream().limit(MAX_TRACKS_PER_TICK).toList()) {
+        for (TrackSeen trackSeen : pending.stream().limit(MAX_TRACKS_PER_SELECT).toList()) {
             generateForTrack(trackSeen);
         }
     }
