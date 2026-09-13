@@ -11,6 +11,8 @@ import com.Gonzxxr.spotify_recommender.repository.TrackSeenRepository;
 import com.Gonzxxr.spotify_recommender.repository.UserRepository;
 import com.Gonzxxr.spotify_recommender.sync.SpotifySearchService;
 import com.Gonzxxr.spotify_recommender.sync.TrackMatch;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RecommendationService {
 
+    private static final Logger log = LoggerFactory.getLogger(RecommendationService.class);
     private static final int SIMILAR_TRACKS_LIMIT = 5;
     private static final int MAX_TRACKS_PER_TICK = 20;
     private static final int MAX_RECOMMENDATION_ATTEMPTS = 3;
@@ -71,6 +74,8 @@ public class RecommendationService {
         Instant reRecommendCutoff = Instant.now().minus(recommendationProperties.reRecommendCooldown());
         List<TrackSeen> pending = trackSeenRepository.findPendingForRecommendation(
                 user, user.getPlaylistId(), MAX_RECOMMENDATION_ATTEMPTS, retryCutoff, reRecommendCutoff);
+        log.info("generateForUserAsync: {} pending track(s) for user {} playlist {}",
+                pending.size(), user.getSpotifyUserId(), user.getPlaylistId());
         for (TrackSeen trackSeen : pending.stream().limit(MAX_TRACKS_PER_TICK).toList()) {
             generateForTrack(trackSeen);
         }
@@ -86,15 +91,23 @@ public class RecommendationService {
 
         List<SimilarTrack> similarTracks = lastFmClient.getSimilarTracks(
                 trackSeen.getArtistName(), trackSeen.getTrackName(), SIMILAR_TRACKS_LIMIT);
-        if (similarTracks.isEmpty()) return;
+        if (similarTracks.isEmpty()) {
+            log.info("No Last.fm similar tracks for artist='{}' track='{}'", trackSeen.getArtistName(), trackSeen.getTrackName());
+            return;
+        }
 
         User user = userRepository.findById(trackSeen.getUser().getUserId()).orElseThrow();
         String accessToken = spotifyAuthService.getValidAccessToken(user);
         Optional<String> genre = lastFmClient.getTopTagForArtist(trackSeen.getArtistName());
 
+        int saved = 0;
         for (SimilarTrack similar : similarTracks) {
             if (similar.artistName() == null) continue;
-            if (similar.match() < recommendationProperties.minMatchScore()) continue;
+            if (similar.match() < recommendationProperties.minMatchScore()) {
+                log.info("Skipping candidate '{}' by '{}': match {} below threshold {}",
+                        similar.name(), similar.artistName(), similar.match(), recommendationProperties.minMatchScore());
+                continue;
+            }
 
             if (trackSeenRepository.existsByUserAndPlaylistIdAndTrackNameIgnoreCaseAndArtistNameIgnoreCase(
                     user, trackSeen.getPlaylistId(), similar.name(), similar.artistName())) continue;
@@ -102,7 +115,10 @@ public class RecommendationService {
                     user, trackSeen.getPlaylistId(), similar.name(), similar.artistName())) continue;
 
             Optional<TrackMatch> match = spotifySearchService.findTrack(accessToken, similar.name(), similar.artistName());
-            if (match.isEmpty()) continue;
+            if (match.isEmpty()) {
+                log.info("Spotify search found no match for candidate '{}' by '{}'", similar.name(), similar.artistName());
+                continue;
+            }
             String trackId = match.get().trackId();
 
             if (trackSeenRepository.existsByUserAndPlaylistIdAndSpotifyTrackId(user, trackSeen.getPlaylistId(), trackId)) continue;
@@ -120,6 +136,9 @@ public class RecommendationService {
             recommendation.setGenre(genre.orElse(null));
             recommendation.setCreatedAt(Instant.now());
             recommendationRepository.save(recommendation);
+            saved++;
         }
+        log.info("generateForTrack: source='{}' by '{}' -> {} recommendation(s) saved out of {} candidate(s)",
+                trackSeen.getTrackName(), trackSeen.getArtistName(), saved, similarTracks.size());
     }
 }
