@@ -9,6 +9,7 @@ import com.Gonzxxr.spotify_recommender.repository.UserRepository;
 import com.Gonzxxr.spotify_recommender.support.MockHttp;
 import com.Gonzxxr.spotify_recommender.sync.PlaylistSyncService;
 import com.Gonzxxr.spotify_recommender.sync.SpotifySearchService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.AopProxyUtils;
@@ -80,6 +81,11 @@ class UserJourneyIT {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         PostgresTestContainer.register(registry);
+    }
+
+    @AfterEach
+    void leaveTheDatabaseEmpty() {
+        jdbc.execute("TRUNCATE TABLE recommendation, track_seen, users RESTART IDENTITY CASCADE");
     }
 
     @BeforeEach
