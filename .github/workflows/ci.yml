@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# a newer push to the same branch/PR makes the older, still-running build pointless
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven   # reuses downloaded dependencies between runs
+
+      # `verify` runs the unit tests, then the integration + E2E tests, then builds the jar.
+      # The integration tests start a real Postgres through Testcontainers; GitHub's Ubuntu
+      # runners ship with Docker, so nothing extra is needed.
+      - name: Build and run all tests
+        run: ./mvnw -B -ntp verify
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+
+  docker-build:
+    # Production deploys from the Dockerfile, so make sure it keeps building.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Docker image
+        run: docker build -t spotify-recommender:ci .

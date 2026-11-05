@@ -1,5 +1,7 @@
 # Spotify Recommender
 
+[![CI](https://github.com/Gonzxxr/spotify-recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/Gonzxxr/spotify-recommender/actions/workflows/ci.yml)
+
 App que analiza una playlist de Spotify y genera recomendaciones de canciones nuevas usando
 similitud de Last.fm, evitando repetir temas que ya están en la playlist.
 
@@ -106,5 +108,20 @@ y actualicen `SPOTIFY_REDIRECT_URI` al dominio real.
 - `PlaylistSyncService.syncPlaylists()` recorre usuarios secuencialmente cada 30s; si el número
   de usuarios crece mucho, un ciclo podría tardar más de 30s y correrse (no es un bug, es un
   límite de diseño para grupos chicos).
-- No hay tests más allá del `contextLoads` por defecto. `@SpringBootTest` necesita Postgres
-  corriendo y las variables de entorno seteadas para poder ejecutarse.
+
+## Tests
+
+```bash
+./mvnw test      # unitarios, ~10s, sin Docker
+./mvnw verify    # + integración y E2E (necesita Docker) + reporte de cobertura en target/site/jacoco/
+```
+
+- **Unitarios** (`*Test`): servicios, controllers (MockMvc standalone), entidades, DTOs y el conversor de cifrado.
+  Spotify y Last.fm se simulan a nivel HTTP con `MockRestServiceServer`, así que el parseo y el manejo de
+  errores son los de producción. Los TTL de sesión y de `state` OAuth se prueban con un `Clock` controlable.
+- **Integración** (`*IT`): repositorios contra un Postgres real levantado con Testcontainers, y la app
+  completa (controllers, servicios, JPA) con la red externa simulada.
+- **E2E** (`e2e/UserJourneyIT`): servidor real en un puerto aleatorio y cliente HTTP real recorriendo
+  login OAuth, elección de playlist, recomendaciones, jobs de fondo y logout.
+
+Los jobs `@Scheduled` se apagan en tests con `app.scheduling.enabled=false` y se disparan a mano.
