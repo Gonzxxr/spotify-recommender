@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,19 +24,11 @@ public class LastFmClient {
     }
 
     public List<SimilarTrack> getSimilarTracks(String artist, String track, int limit) {
-        String url = UriComponentsBuilder.fromUriString(BASE_URL)
-                .queryParam("method", "track.getsimilar")
-                .queryParam("artist", artist)
-                .queryParam("track", track)
-                .queryParam("api_key", properties.apiKey())
-                .queryParam("format", "json")
-                .queryParam("limit", limit)
-                .encode()
-                .build()
-                .toUriString();
+        // Variables go through RestClient's URI template so each value is percent-encoded exactly once.
+        String url = BASE_URL + "?method=track.getsimilar&artist={artist}&track={track}&api_key={apiKey}&format=json&limit={limit}";
 
         try {
-            LastFmSimilarTracksResponse response = restClient.get().uri(url).retrieve().body(LastFmSimilarTracksResponse.class);
+            LastFmSimilarTracksResponse response = restClient.get().uri(url, artist, track, properties.apiKey(), limit).retrieve().body(LastFmSimilarTracksResponse.class);
             if (response == null || response.similarTracks() == null || response.similarTracks().track() == null) {
                 return List.of();
             }
@@ -51,17 +42,10 @@ public class LastFmClient {
     }
 
     public Optional<String> getTopTagForArtist(String artist) {
-        String url = UriComponentsBuilder.fromUriString(BASE_URL)
-                .queryParam("method", "artist.gettoptags")
-                .queryParam("artist", artist)
-                .queryParam("api_key", properties.apiKey())
-                .queryParam("format", "json")
-                .encode()
-                .build()
-                .toUriString();
+        String url = BASE_URL + "?method=artist.gettoptags&artist={artist}&api_key={apiKey}&format=json";
 
         try {
-            LastFmTopTagsResponse response = restClient.get().uri(url).retrieve().body(LastFmTopTagsResponse.class);
+            LastFmTopTagsResponse response = restClient.get().uri(url, artist, properties.apiKey()).retrieve().body(LastFmTopTagsResponse.class);
             if (response == null || response.topTags() == null || response.topTags().tag() == null || response.topTags().tag().isEmpty()) {
                 return Optional.empty();
             }

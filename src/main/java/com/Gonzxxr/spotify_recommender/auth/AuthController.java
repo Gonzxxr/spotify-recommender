@@ -2,6 +2,8 @@ package com.Gonzxxr.spotify_recommender.auth;
 
 import com.Gonzxxr.spotify_recommender.persistence.User;
 import com.Gonzxxr.spotify_recommender.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClientException;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -23,6 +26,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/auth/spotify")
 public class AuthController {
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     private final SpotifyAuthService authService;
     private final OAuthStateStore stateStore;
     private final SessionStore sessionStore;
@@ -47,11 +52,24 @@ public class AuthController {
     }
 
     @GetMapping("/callback")
-    public ResponseEntity<Void> callback(@RequestParam String code, @RequestParam String state) {
-        if (!stateStore.consume(state)) {
-            return ResponseEntity.status(302).location(URI.create("/?error=invalid_state")).build();
+    public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
+                                          @RequestParam(required = false) String state,
+                                          @RequestParam(required = false) String error) {
+        if (state == null || !stateStore.consume(state)) {
+            return redirect("/?error=invalid_state");
         }
-        User user = authService.handleCallback(code);
+        if (error != null || code == null) {
+            // e.g. the person pressed "Cancel" on Spotify's consent screen (error=access_denied)
+            log.info("Spotify authorization was not granted: {}", error);
+            return redirect("/?error=access_denied");
+        }
+        User user;
+        try {
+            user = authService.handleCallback(code);
+        } catch (RestClientException e) {
+            log.warn("Spotify login failed while exchanging the authorization code: {}", e.getMessage());
+            return redirect("/?error=spotify_unavailable");
+        }
         String sessionId = sessionStore.create(user.getSpotifyUserId());
 
         String redirectUrl = "/?connected=true&displayName=" + encode(user.getDisplayName());
@@ -76,6 +94,10 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO).toString())
                 .build();
+    }
+
+    private ResponseEntity<Void> redirect(String location) {
+        return ResponseEntity.status(302).location(URI.create(location)).build();
     }
 
     private ResponseCookie sessionCookie(String value, Duration maxAge) {

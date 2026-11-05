@@ -2,6 +2,7 @@ package com.Gonzxxr.spotify_recommender.auth;
 
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -18,10 +19,15 @@ public class SessionStore {
     }
 
     private final Map<String, Session> store = new ConcurrentHashMap<>();
+    private final Clock clock;
+
+    public SessionStore(Clock clock) {
+        this.clock = clock;
+    }
 
     public String create(String spotifyUserId) {
         String sessionId = UUID.randomUUID().toString();
-        store.put(sessionId, new Session(spotifyUserId, Instant.now().plus(SESSION_TTL)));
+        store.put(sessionId, new Session(spotifyUserId, clock.instant().plus(SESSION_TTL)));
         return sessionId;
     }
 
@@ -29,7 +35,7 @@ public class SessionStore {
         if (sessionId == null) return Optional.empty();
         Session session = store.get(sessionId);
         if (session == null) return Optional.empty();
-        if (Instant.now().isAfter(session.expiresAt())) {
+        if (clock.instant().isAfter(session.expiresAt())) {
             store.remove(sessionId);
             return Optional.empty();
         }
