@@ -2,26 +2,89 @@
 
 [![CI](https://github.com/Gonzxxr/spotify-recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/Gonzxxr/spotify-recommender/actions/workflows/ci.yml)
 
-App que analiza una playlist de Spotify y genera recomendaciones de canciones nuevas usando
-similitud de Last.fm, evitando repetir temas que ya están en la playlist.
+App web que analiza una playlist de Spotify y recomienda canciones nuevas usando la similitud de
+Last.fm, sin repetir temas que ya están en la playlist.
 
-Pensada para que **varias personas usen la misma instancia**, cada una conectando su propia
-cuenta de Spotify (OAuth2 Authorization Code). Cada usuario ve solo sus propias playlists y
-recomendaciones.
+Está pensada para **una sola instancia compartida por varias personas**: cada una conecta su propia
+cuenta de Spotify (OAuth2 Authorization Code) y ve solo sus playlists y sus recomendaciones.
+
+**Stack:** Java 21 · Spring Boot 4 · Spring Data JPA · PostgreSQL · OAuth2 hecho a mano · JUnit 5,
+Mockito y Testcontainers · GitHub Actions · Docker.
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    UI["Frontend estático<br/>(HTML + JS)"] -->|cookie SESSION_ID| API["Controllers REST<br/>auth · playlists · recommendations"]
+    API --> DB[("PostgreSQL<br/>users · track_seen · recommendation")]
+
+    Sync["PlaylistSyncService<br/>@Scheduled cada 30s"] -->|lee los tracks| Spotify[["Spotify API"]]
+    Sync -->|guarda tracks nuevos| DB
+
+    DB -->|tracks pendientes| Rec["RecommendationService<br/>@Scheduled cada 60s<br/>+ al elegir playlist"]
+    Rec -->|tracks similares y géneros| LastFm[["Last.fm API"]]
+    Rec --> Search["SpotifySearchService<br/>cache + circuit breaker"]
+    Search -->|busca el track| Spotify
+    Rec -->|guarda recomendaciones| DB
+```
+
+La tabla `track_seen` funciona como una **cola productor/consumidor**: el job de sincronización la
+llena y el de recomendaciones la consume. Los dos jobs no se conocen entre sí, y cada uno se ajusta
+según lo que cuesta su API (Spotify para sincronizar, Last.fm más Spotify Search para recomendar).
 
 ## Cómo funciona
 
-1. Cada persona entra a la app y toca "Conectar con Spotify" → login OAuth.
-2. Elige una de sus playlists.
-3. Un job en segundo plano sincroniza los tracks de esa playlist (`PlaylistSyncService`, cada 30s)
-   y otro genera recomendaciones vía Last.fm + búsqueda en Spotify (`RecommendationService`, cada 60s).
-4. La UI muestra las recomendaciones nuevas, con cooldown para no repetir la misma sugerencia
-   ni resincronizar de más.
+1. La persona entra a la app y toca "Conectar con Spotify" → login OAuth.
+2. Elige una de sus playlists. Se sincronizan sus tracks y arranca una primera tanda de recomendaciones.
+3. En segundo plano, un job mantiene la playlist sincronizada (solo vuelve a leer los tracks si cambió
+   el `snapshot_id`) y otro genera recomendaciones: por cada track pide similares a Last.fm, descarta
+   los de baja afinidad y los que ya están en la playlist o ya se recomendaron, y busca el resto en Spotify.
+4. La UI muestra las recomendaciones de a tandas de 10, ordenadas por afinidad. Una recomendación ya
+   mostrada no vuelve a aparecer hasta pasada una hora.
+
+## Decisiones de diseño y lecciones aprendidas
+
+Cosas que salieron mal (o casi) y cómo quedaron resueltas. Están en el historial de commits.
+
+**Rate limiting de Spotify (el problema más difícil del proyecto).** Con una app en Development Mode,
+la cuota de Spotify es chica y un solo error puede bloquear la búsqueda unas 20 horas. Cada punto de
+entrada usa la estrategia que le corresponde:
+- `PlaylistSyncService`: reintenta con backoff solo si el `Retry-After` es corto (≤ 5 s); si es largo,
+  marca un `blockedUntil` y falla rápido, sin dormir el hilo.
+- `SpotifySearchService`: llamadas serializadas y espaciadas (400 ms), circuit breaker global tras un
+  429 y cache en memoria de aciertos y de "no encontrado" (nunca de errores transitorios).
+- `RecommendationService`: evita el problema por diseño, con lotes acotados (20 tracks por tick, solo 5
+  al elegir una playlist) y un cooldown de 6 h por track. La ruta "al elegir playlist" tiene un tope
+  más bajo porque es la única que arranca sin nada en cache.
+
+**Un solo hilo de `@Scheduled` puede congelar todo en silencio.** Spring ejecuta los jobs en un único
+hilo por defecto, y los `RestClient` sin timeout pueden colgarse para siempre: un solo request trabado
+frenaba sincronización y recomendaciones de todos los usuarios, sin error ni log. Ahora todos los
+clientes tienen timeouts (5 s de conexión, 15 s de lectura), el pool del scheduler es de 2 hilos y
+ningún job duerme según un valor que mande el servidor.
+
+**Seguridad.**
+- *CSRF en OAuth:* parámetro `state` aleatorio de un solo uso, con TTL de 10 minutos.
+- *Sesión:* cookie `HttpOnly` y `SameSite=Lax` (y `Secure` en producción). El cliente nunca manda
+  su propio `spotifyUserId`: un diseño anterior lo permitía y cualquier usuario podía actuar como otro
+  (IDOR), así que la identidad sale siempre de la sesión en el servidor.
+- *Tokens en reposo:* los tokens de Spotify se cifran en la base con AES-256-GCM (IV aleatorio por
+  valor y tag de autenticación) mediante un `AttributeConverter` de JPA.
+
+**Filtrado en la base, no en Java.** El primer `generateRecommendations` hacía `findAll()` y filtraba en
+memoria con una consulta por fila. Ahora es una sola query con `NOT EXISTS` y paginación.
+
+**Loguear los caminos que "no hacen nada".** Una ruta que retorna sin efecto ni log no deja pistas:
+un bug de producción quedó 100 % en silencio hasta que se agregó logging a esos caminos.
+
+**Los tests encontraron un bug real.** `LastFmClient` codificaba dos veces la URL, así que los
+artistas con espacios se buscaban con un `%20` literal en el nombre. Lo detectó un test unitario con el
+servidor HTTP simulado.
 
 ## Requisitos
 
 - JDK 21
-- Docker (para Postgres) o una instancia de Postgres propia
+- Docker (para Postgres y para los tests de integración) o una instancia de Postgres propia
 - Una app registrada en el [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - Una API key de [Last.fm](https://www.last.fm/api/account/create)
 
@@ -38,9 +101,11 @@ La app no tiene ningún secreto hardcodeado: todo se toma de variables de entorn
 | `SPOTIFY_REDIRECT_URI` | Debe coincidir EXACTO con el registrado en el dashboard de Spotify (default: `http://127.0.0.1:8080/auth/spotify/callback`) |
 | `TOKEN_ENCRYPTION_KEY` | Clave AES-256 en base64 para cifrar los tokens de Spotify en la base. Generarla con `openssl rand -base64 32` |
 | `LASTFM_API_KEY` | API key de Last.fm |
+| `COOKIE_SECURE` | `true` cuando se sirve por HTTPS (default: `false`) |
 
-En el dashboard de Spotify agregá tu `SPOTIFY_REDIRECT_URI` a la lista de Redirect URIs de la app,
-y agregá como usuarios de prueba (o pasá la app a modo producción) a cada amigo que se vaya a loguear.
+En el dashboard de Spotify agregá tu `SPOTIFY_REDIRECT_URI` a la lista de Redirect URIs de la app.
+Mientras la app esté en Development Mode, Spotify solo deja loguearse a los usuarios que agregues a mano
+en el dashboard.
 
 ## Levantar el proyecto
 
@@ -58,57 +123,6 @@ export LASTFM_API_KEY=...
 
 La app queda en `http://127.0.0.1:8080`.
 
-## Deploy a Railway
-
-El repo ya trae un `Dockerfile` multi-stage (probado localmente con `docker build` + un Postgres
-de prueba) y toma la config de Postgres de las variables `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
-que es como Railway inyecta las credenciales de su plugin de Postgres automáticamente. También lee
-`PORT` para el puerto HTTP, que Railway también inyecta solo.
-
-1. Pushear este repo a GitHub (ver más abajo si todavía no lo hiciste).
-2. En [railway.app](https://railway.app), crear un proyecto nuevo → "Deploy from GitHub repo" → elegir este repo.
-   Railway detecta el `Dockerfile` y lo usa para buildear.
-3. En el mismo proyecto, "+ New" → "Database" → "Add PostgreSQL". Railway conecta automáticamente
-   `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` al servicio de la app (no hace falta
-   setearlas a mano ni usar `DB_PASSWORD`, esa es solo para uso local con `docker-compose.yml`).
-4. En el servicio de la app, pestaña "Variables", agregar:
-   - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` (del Spotify Developer Dashboard)
-   - `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`)
-   - `LASTFM_API_KEY`
-   - `COOKIE_SECURE=true` (obligatorio: sin esto el navegador no manda la cookie de sesión sobre HTTPS)
-   - `SPOTIFY_REDIRECT_URI=https://<tu-dominio-de-railway>/auth/spotify/callback` (Railway te da el
-     dominio `*.up.railway.app` apenas hace el primer deploy, en Settings → Networking → "Generate Domain")
-5. Volver al Spotify Developer Dashboard → tu app → Settings → agregar exactamente esa misma URL
-   a "Redirect URIs", y agregar como usuarios de la app (o pasarla a modo producción) a los 4 amigos
-   que se van a loguear.
-6. Redeploy. Listo, la URL de Railway es la que comparten entre los 5.
-
-## Pushear a GitHub (si todavía no lo hiciste)
-
-```bash
-gh auth login          # o creá el repo a mano en github.com/new
-gh repo create spotify-recommender --private --source=. --remote=origin
-git push -u origin master
-```
-
-## Usarla con más de una persona
-
-La app está pensada para correr **una sola instancia compartida** (por ejemplo, en un VPS)
-a la que cada amigo entra y conecta su propia cuenta de Spotify. La autenticación entre
-requests usa una cookie de sesión `HttpOnly` (no hay contraseñas propias de la app).
-
-Si van a exponerla fuera de `localhost`, corranla detrás de HTTPS (proxy reverso tipo Caddy/nginx)
-y actualicen `SPOTIFY_REDIRECT_URI` al dominio real.
-
-## Deuda técnica conocida / posibles mejoras
-
-- Las sesiones (`SessionStore`) y el estado de OAuth (`OAuthStateStore`) viven en memoria: un
-  reinicio del server desloguea a todos. Para 5 usuarios no es un problema real, pero si se
-  necesita persistencia entre reinicios habría que moverlas a la base o a Redis.
-- `PlaylistSyncService.syncPlaylists()` recorre usuarios secuencialmente cada 30s; si el número
-  de usuarios crece mucho, un ciclo podría tardar más de 30s y correrse (no es un bug, es un
-  límite de diseño para grupos chicos).
-
 ## Tests
 
 ```bash
@@ -125,3 +139,32 @@ y actualicen `SPOTIFY_REDIRECT_URI` al dominio real.
   login OAuth, elección de playlist, recomendaciones, jobs de fondo y logout.
 
 Los jobs `@Scheduled` se apagan en tests con `app.scheduling.enabled=false` y se disparan a mano.
+El CI corre `./mvnw verify` en cada push y PR, y comprueba que la imagen Docker siga construyendo.
+
+## Deploy
+
+El repo trae un `Dockerfile` multi-stage y toma la config de Postgres de `PGHOST`/`PGPORT`/`PGDATABASE`/
+`PGUSER`/`PGPASSWORD` y el puerto de `PORT`, que es como la mayoría de las plataformas inyectan esos
+valores. Sirve para cualquier lugar que corra contenedores y ofrezca un Postgres.
+
+Como ejemplo, en [Railway](https://railway.app):
+
+1. Crear un proyecto → "Deploy from GitHub repo" → elegir este repo (detecta el `Dockerfile`).
+2. "+ New" → "Database" → "Add PostgreSQL": conecta solas las variables `PG*` al servicio de la app.
+3. En "Variables" del servicio, agregar `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`,
+   `LASTFM_API_KEY`, `COOKIE_SECURE=true` (sin esto el navegador no manda la cookie de sesión por HTTPS) y
+   `SPOTIFY_REDIRECT_URI=https://<tu-dominio>/auth/spotify/callback`.
+4. Agregar esa misma URL a los Redirect URIs de la app en el dashboard de Spotify, y a cada persona que
+   vaya a usarla como usuario de la app.
+
+Fuera de `localhost` conviene servirla siempre detrás de HTTPS (proxy reverso tipo Caddy o nginx).
+
+## Deuda técnica conocida / posibles mejoras
+
+- Las sesiones (`SessionStore`) y el estado de OAuth (`OAuthStateStore`) viven en memoria: un
+  reinicio del server desloguea a todos. Para un grupo chico no es un problema real, pero si se
+  necesita persistencia entre reinicios habría que moverlas a la base o a Redis.
+- `PlaylistSyncService.syncPlaylists()` recorre usuarios secuencialmente cada 30s; si el número
+  de usuarios crece mucho, un ciclo podría tardar más de 30s y correrse (no es un bug, es un
+  límite de diseño para grupos chicos).
+- La cache de `SpotifySearchService` está en memoria y sin límite de tamaño ni expiración.
