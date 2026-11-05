@@ -8,6 +8,8 @@ Last.fm, sin repetir temas que ya están en la playlist.
 Está pensada para **una sola instancia compartida por varias personas**: cada una conecta su propia
 cuenta de Spotify (OAuth2 Authorization Code) y ve solo sus playlists y sus recomendaciones.
 
+![Demo: conectar con Spotify, elegir una playlist y ver las recomendaciones](docs/demo.gif)
+
 **Stack:** Java 21 · Spring Boot 4 · Spring Data JPA · PostgreSQL · OAuth2 hecho a mano · JUnit 5,
 Mockito y Testcontainers · GitHub Actions · Docker.
 
